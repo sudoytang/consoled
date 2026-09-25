@@ -153,7 +153,19 @@ class Term:
 
 
 def pids_for_user(user: str) -> list[str]:
-    out = subprocess.check_output(["ps", "-u", user, "-o", "pid=", "-o", "cmd="], text=True)
+    cmds = [
+        ["ps", "-u", user, "-o", "pid=", "-o", "cmd="],
+        ["sudo", "-n", "ps", "-u", user, "-o", "pid=", "-o", "cmd="],
+    ]
+    out = ""
+    for cmd in cmds:
+        try:
+            proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+        except FileNotFoundError:
+            continue
+        if proc.returncode == 0 or proc.stdout.strip():
+            out = proc.stdout
+            break
     lines = []
     for line in out.splitlines():
         line = line.strip()
@@ -165,18 +177,26 @@ def pids_for_user(user: str) -> list[str]:
     return lines
 
 
-def login(term: Term, password: str) -> None:
+def wait_shell(term: Term) -> None:
+    """Wait until a user shell is running. Output must not appear in the typed line."""
+    term.send_line("expr 200 + 23")
+    term.wait_contains("223")
+
+
+def login(term: Term, password: str, expect_shell: bool = True) -> None:
     term.wait_contains("login:")
     term.send_line(USER)
     term.wait_contains("Password:")
     term.send_line(password)
+    if expect_shell:
+        wait_shell(term)
 
 
 def test_bad_password() -> None:
     ws = WsClient()
     ws.send_resize(80, 24)
     term = Term(ws)
-    login(term, "wrong-password")
+    login(term, "wrong-password", expect_shell=False)
     term.wait_contains("Login incorrect")
     ws.close()
     print("ok: bad password rejected")
@@ -187,9 +207,6 @@ def test_success_and_tty() -> None:
     ws.send_resize(80, 24)
     term = Term(ws)
     login(term, PASSWORD)
-    marker = f"READY-{uuid.uuid4().hex[:8]}"
-    term.send_line(f"echo {marker}")
-    term.wait_contains(marker)
     term.send_line("tty")
     text = term.wait_contains("/dev/pts/")
     assert "/dev/pts/" in text
@@ -204,9 +221,6 @@ def test_resize() -> None:
     ws.send_resize(80, 24)
     term = Term(ws)
     login(term, PASSWORD)
-    marker = f"SZ-{uuid.uuid4().hex[:8]}"
-    term.send_line(f"echo {marker}")
-    term.wait_contains(marker)
     ws.send_resize(100, 30)
     time.sleep(0.3)
     term.send_line("stty size")
@@ -221,8 +235,6 @@ def test_ctrl_c() -> None:
     term = Term(ws)
     login(term, PASSWORD)
     marker = f"C-{uuid.uuid4().hex[:8]}"
-    term.send_line(f"echo {marker}")
-    term.wait_contains(marker)
     term.send_line("sleep 1000")
     time.sleep(0.4)
     term.send_raw(b"\x03")
@@ -237,9 +249,6 @@ def test_ctrl_z() -> None:
     ws.send_resize(80, 24)
     term = Term(ws)
     login(term, PASSWORD)
-    marker = f"Z-{uuid.uuid4().hex[:8]}"
-    term.send_line(f"echo {marker}")
-    term.wait_contains(marker)
     term.send_line("sleep 1000")
     time.sleep(0.4)
     term.send_raw(b"\x1a")
@@ -256,9 +265,6 @@ def test_cleanup() -> None:
     ws.send_resize(80, 24)
     term = Term(ws)
     login(term, PASSWORD)
-    marker = f"X-{uuid.uuid4().hex[:8]}"
-    term.send_line(f"echo {marker}")
-    term.wait_contains(marker)
     before = pids_for_user(USER)
     assert before, "expected a user shell after login"
     ws.close()

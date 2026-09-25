@@ -25,6 +25,9 @@ consoled \
     --key /tmp/key.pem \
     --origin https://127.0.0.1:8443 \
     --initial-resize-timeout 15 \
+    --per-source-penalty-seconds 0 \
+    --per-source-max 50 \
+    --per-source-rate 100/60 \
     >/tmp/consoled.stdout 2>/tmp/consoled.stderr &
 daemon_pid=$!
 
