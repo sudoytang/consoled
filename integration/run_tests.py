@@ -177,10 +177,24 @@ def pids_for_user(user: str) -> list[str]:
     return lines
 
 
-def wait_shell(term: Term) -> None:
-    """Wait until a user shell is running. Output must not appear in the typed line."""
-    term.send_line("expr 200 + 23")
-    term.wait_contains("223")
+def wait_shell(term: Term, timeout: float = 30.0) -> None:
+    """Wait until a user shell is running. Output must not appear in the typed line.
+
+    The probe is re-sent until answered: login/PAM restores the terminal with
+    tcsetattr(TCSAFLUSH) after reading the password, which discards any input
+    that reached the PTY before that point. Under load the first probe can
+    land in that window and be silently dropped (a real terminal behaves the
+    same), so a single send is racy.
+    """
+    deadline = time.time() + timeout
+    while True:
+        term.send_line("expr 200 + 23")
+        try:
+            term.wait_contains("223", timeout=min(5.0, max(0.1, deadline - time.time())))
+            return
+        except AssertionError:
+            if time.time() >= deadline:
+                raise
 
 
 def login(term: Term, password: str, expect_shell: bool = True) -> None:
@@ -221,10 +235,23 @@ def test_resize() -> None:
     ws.send_resize(80, 24)
     term = Term(ws)
     login(term, PASSWORD)
+    # Do not resize while bash may be (re)drawing a prompt. Each time readline
+    # prepares the terminal it does TIOCGWINSZ followed by TIOCSWINSZ with the
+    # value it just read (readline rltty.c set_winsize). A resize that lands
+    # between those two calls is overwritten with the old size, and `stty size`
+    # then prints the stale "24 80". Sending the resize right after the
+    # previous command's output hits exactly that window.
+    #
+    # Instead park bash inside a command line: once GATE is printed readline
+    # is done with this line and will not touch the window size again until
+    # the command finishes. `read` (no -e, so no readline) waits for a line.
+    # consoled applies frames in order, so TIOCSWINSZ is done before the
+    # newline that releases `read` is written, and `stty` runs after both.
+    term.send_line("echo GATE-$((6 * 7)); read -r _; echo SZ-$(stty size)-END")
+    term.wait_contains("GATE-42")
     ws.send_resize(100, 30)
-    time.sleep(0.3)
-    term.send_line("stty size")
-    term.wait_contains("30 100")
+    term.send_line("")
+    term.wait_contains("SZ-30 100-END")
     print("ok: stty size follows resize")
     ws.close()
 
