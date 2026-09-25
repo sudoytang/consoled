@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "cursor/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.83.0
+        with:
+          components: clippy, rustfmt
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test
+      - name: release
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: consoled
+          path: target/release/consoled
+
+  integration:
+    needs: rust
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: consoled
+          path: target/release
+      - name: mark binary executable
+        run: chmod +x target/release/consoled
+      - name: containerized login tests
+        run: |
+          docker build -f integration/Dockerfile -t consoled-it .
+          docker run --rm --privileged consoled-it

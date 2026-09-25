@@ -1,0 +1,40 @@
+[package]
+name = "consoled"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+description = "Web-native Linux remote console: xterm.js over WSS to a PTY running /bin/login"
+license = "MIT"
+publish = false
+
+[dependencies]
+bytes = "=1.9.0"
+clap = { version = "=4.5.23", features = ["derive"] }
+futures-util = { version = "=0.3.31", default-features = false, features = ["sink"] }
+http = "=1.2.0"
+http-body-util = "=0.1.2"
+hyper = { version = "=1.5.2", features = ["http1", "server"] }
+hyper-util = { version = "=0.1.10", features = ["tokio"] }
+libc = "=0.2.169"
+nix = { version = "=0.29.0", features = ["fs", "hostname", "ioctl", "poll", "process", "sched", "signal", "socket", "term", "user", "uio"] }
+rand = "=0.8.5"
+rustls = { version = "=0.23.20", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "=2.2.0"
+seccompiler = "=0.4.0"
+serde = { version = "=1.0.216", features = ["derive"] }
+serde_json = "=1.0.134"
+thiserror = "=1.0.69"
+tokio = { version = "=1.42.0", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time", "fs"] }
+tokio-rustls = { version = "=0.26.1", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "=0.26.1", default-features = false, features = ["handshake"] }
+tracing = "=0.1.41"
+tracing-subscriber = { version = "=0.3.19", features = ["env-filter", "fmt"] }
+tungstenite = { version = "=0.26.1", default-features = false, features = ["handshake"] }
+zeroize = { version = "=1.8.1", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+rand = { version = "0.8", features = ["small_rng"] }
+
+[profile.release]
+lto = false
+codegen-units = 16
