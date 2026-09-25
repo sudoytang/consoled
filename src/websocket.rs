@@ -1,7 +1,8 @@
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::unix::AsyncFd;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
@@ -46,13 +47,46 @@ pub async fn wait_initial_resize(
     }
 }
 
-pub async fn pump(
-    mut ws: WsStream,
-    mut pty: tokio::fs::File,
-    mut pty_write: tokio::fs::File,
-    master_fd: i32,
-    cfg: &Config,
-) -> ExitReason {
+/// Read from the non-blocking PTY master once it is readable.
+///
+/// Cancel-safe: `readable()` holds no data, and the read itself is a
+/// single synchronous syscall inside `try_io`.
+async fn pty_read(pty: &AsyncFd<OwnedFd>, buf: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        let mut guard = pty.readable().await?;
+        match guard.try_io(|fd| {
+            nix::unistd::read(fd.get_ref().as_raw_fd(), buf).map_err(std::io::Error::from)
+        }) {
+            Ok(res) => return res,
+            Err(_would_block) => continue,
+        }
+    }
+}
+
+/// Write all of `data` to the non-blocking PTY master, waiting for
+/// writability when the PTY input buffer is full.
+async fn pty_write_all(pty: &AsyncFd<OwnedFd>, mut data: &[u8]) -> std::io::Result<()> {
+    while !data.is_empty() {
+        let mut guard = pty.writable().await?;
+        match guard
+            .try_io(|fd| nix::unistd::write(fd.get_ref(), data).map_err(std::io::Error::from))
+        {
+            Ok(Ok(0)) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(Ok(n)) => data = &data[n..],
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_would_block) => {}
+        }
+    }
+    Ok(())
+}
+
+/// Shuttle bytes between the WebSocket and the PTY master.
+///
+/// `pty` must be a non-blocking PTY master fd registered with the tokio
+/// reactor, so an idle session sleeps in epoll instead of spinning.
+pub async fn pump(mut ws: WsStream, pty: AsyncFd<OwnedFd>, cfg: &Config) -> ExitReason {
+    let master_fd = pty.as_raw_fd();
     let mut buf = vec![0u8; cfg.max_message_size.min(64 * 1024)];
     let lifetime = sleep_opt(cfg.max_connection_lifetime);
     tokio::pin!(lifetime);
@@ -85,7 +119,7 @@ pub async fn pump(
                     }
                     Some(Ok(Message::Pong(_))) | Some(Ok(Message::Frame(_))) => {}
                     Some(Ok(Message::Binary(data))) => {
-                        if let Err(e) = pty_write.write_all(&data).await {
+                        if let Err(e) = pty_write_all(&pty, &data).await {
                             tracing::debug!("pty write failed: {e}");
                             return ExitReason::PtyEof;
                         }
@@ -107,7 +141,7 @@ pub async fn pump(
                     }
                 }
             }
-            read = pty.read(&mut buf) => {
+            read = pty_read(&pty, &mut buf) => {
                 match read {
                     Ok(0) => {
                         let _ = close(&mut ws, CloseCode::Normal, "session ended").await;
@@ -119,7 +153,7 @@ pub async fn pump(
                         }
                         last_io = tokio::time::Instant::now();
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                     Err(_) => {
                         let _ = close(&mut ws, CloseCode::Normal, "session ended").await;
                         return ExitReason::PtyEof;

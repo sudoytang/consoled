@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::Instant;
@@ -136,10 +136,7 @@ async fn run_console(
         }
     };
 
-    let raw = master.into_raw_fd();
-    crate::linux::set_nonblocking(raw, true)?;
-    let std_file = unsafe { std::fs::File::from_raw_fd(raw) };
-    let reader = tokio::fs::File::from_std(std_file);
-    let writer = reader.try_clone().await?;
-    Ok(websocket::pump(ws, reader, writer, raw, cfg).await)
+    crate::linux::set_nonblocking(master.as_raw_fd(), true)?;
+    let pty = tokio::io::unix::AsyncFd::new(master)?;
+    Ok(websocket::pump(ws, pty, cfg).await)
 }

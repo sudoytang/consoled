@@ -59,5 +59,9 @@ if [ "$i" -eq 50 ]; then
     exit 1
 fi
 
-python3 /tests/run_tests.py
+if ! python3 /tests/run_tests.py; then
+    echo "--- consoled stderr ---" >&2
+    cat /tmp/consoled.stderr >&2 || true
+    exit 1
+fi
 echo "integration tests passed"

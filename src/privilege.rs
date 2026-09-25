@@ -88,7 +88,22 @@ fn allow(sys: i64) -> (i64, Vec<SeccompRule>) {
     (sys, Vec::new())
 }
 
+/// Stop glibc malloc from reading `/sys/devices/system/cpu/online`.
+///
+/// When a process has more threads than `arena_test` (8 on 64-bit) and
+/// needs another arena, glibc calls `__get_nprocs()`, which `openat`s that
+/// file. `openat` is not in the seccomp allowlist, so the child would be
+/// killed with SIGSYS at a timing-dependent point (e.g. when tokio's
+/// blocking pool grows). Fixing `M_ARENA_MAX` up front skips that path.
+fn cap_malloc_arenas() {
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 4);
+    }
+}
+
 fn apply_seccomp() -> Result<()> {
+    cap_malloc_arenas();
     let mut rules: BTreeMap<i64, Vec<SeccompRule>> = [
         allow(libc::SYS_read),
         allow(libc::SYS_write),
