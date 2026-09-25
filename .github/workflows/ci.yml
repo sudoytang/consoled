@@ -10,7 +10,7 @@ jobs:
   rust:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.83.0
         with:
           components: clippy, rustfmt
@@ -22,23 +22,23 @@ jobs:
         run: cargo test
       - name: release
         run: cargo build --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: consoled
-          path: target/release/consoled
 
+  # Independent of the rust job: integration/Dockerfile compiles consoled
+  # itself inside a Debian 12 image, so no host-built artifact is needed and
+  # both jobs can run in parallel.
   integration:
-    needs: rust
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: build integration image
+        uses: docker/build-push-action@v7
         with:
-          name: consoled
-          path: target/release
-      - name: mark binary executable
-        run: chmod +x target/release/consoled
+          context: .
+          file: integration/Dockerfile
+          tags: consoled-it
+          load: true
+          cache-from: type=gha,scope=integration
+          cache-to: type=gha,scope=integration,mode=max
       - name: containerized login tests
-        run: |
-          docker build -f integration/Dockerfile -t consoled-it .
-          docker run --rm --privileged consoled-it
+        run: docker run --rm --privileged consoled-it

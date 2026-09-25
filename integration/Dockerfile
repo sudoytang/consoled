@@ -6,12 +6,26 @@
 # Toolchain pinned to the crate MSRV (Cargo.toml rust-version).
 FROM rust:1.83-bookworm AS build
 WORKDIR /src
+
+# Dependency-only layer: build all crates from Cargo.lock against a stub
+# main.rs. This layer only changes when Cargo.toml/Cargo.lock change, so CI
+# (buildx + GHA layer cache) and local rebuilds skip recompiling
+# dependencies. Deliberately no RUN --mount=type=cache here: cache mounts
+# are not exported to the GHA cache, and the compiled deps must live in the
+# image layer to be reusable.
 COPY Cargo.toml Cargo.lock ./
+RUN mkdir src \
+    && echo 'fn main() {}' > src/main.rs \
+    && cargo build --release --locked \
+    && rm -rf src \
+        target/release/consoled target/release/consoled.d \
+        target/release/deps/consoled-* \
+        target/release/.fingerprint/consoled-*
+
+# Application layer: only consoled itself is compiled here.
 COPY src ./src
 COPY frontend ./frontend
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    cargo build --release --locked \
+RUN cargo build --release --locked \
     && install -m 755 target/release/consoled /consoled
 
 FROM debian:12-slim
