@@ -297,7 +297,10 @@ provided Debian 12 image does both.
    - no leftover login/shell after disconnect
    - bad Origin rejected
 3. **CI**: GitHub Actions runs fmt, clippy `-D warnings`, `cargo test`,
-   `cargo build --release`, then the privileged Debian container.
+   `cargo build --release`, then the privileged Debian container. The
+   integration image (`integration/Dockerfile`) is multi-stage: it builds
+   consoled in `rust:1.83-bookworm` and copies it into `debian:12-slim`,
+   so the tested binary is linked against Debian 12's glibc.
 4. **Manual**: `docs/ACCEPTANCE.md` for Ubuntu + Chrome/Firefox/Safari.
 
 Do not expose anything beyond localhost in automated tests until TLS,

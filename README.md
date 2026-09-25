@@ -39,10 +39,11 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-Containerized login tests (Docker, privileged):
+Containerized login tests (Docker, privileged). The image compiles
+consoled itself in a `rust:1.83-bookworm` stage, so no host build is
+needed and the binary matches the Debian 12 runtime's glibc:
 
 ```bash
-cargo build --release
 docker build -f integration/Dockerfile -t consoled-it .
 docker run --rm --privileged consoled-it
 ```
