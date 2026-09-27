@@ -26,8 +26,14 @@ jobs:
   # Independent of the rust job: integration/Dockerfile compiles consoled
   # itself inside a Debian 12 image, so no host-built artifact is needed and
   # both jobs can run in parallel.
+  # Runs natively on x86_64 and arm64 so the seccomp allowlist is exercised
+  # on both syscall tables.
   integration:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -38,7 +44,7 @@ jobs:
           file: integration/Dockerfile
           tags: consoled-it
           load: true
-          cache-from: type=gha,scope=integration
-          cache-to: type=gha,scope=integration,mode=max
+          cache-from: type=gha,scope=integration-${{ matrix.runner }}
+          cache-to: type=gha,scope=integration-${{ matrix.runner }},mode=max
       - name: containerized login tests
         run: docker run --rm --privileged consoled-it

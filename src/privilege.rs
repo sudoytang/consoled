@@ -116,11 +116,9 @@ fn apply_seccomp() -> Result<()> {
         allow(libc::SYS_fstat),
         allow(libc::SYS_newfstatat),
         allow(libc::SYS_statx),
-        allow(libc::SYS_poll),
         allow(libc::SYS_ppoll),
         allow(libc::SYS_epoll_create1),
         allow(libc::SYS_epoll_ctl),
-        allow(libc::SYS_epoll_wait),
         allow(libc::SYS_epoll_pwait),
         allow(libc::SYS_recvfrom),
         allow(libc::SYS_sendto),
@@ -165,6 +163,9 @@ fn apply_seccomp() -> Result<()> {
         allow(libc::SYS_getppid),
         allow(libc::SYS_fcntl),
         allow(libc::SYS_eventfd2),
+        allow(libc::SYS_epoll_pwait2),
+        allow(libc::SYS_futex_waitv),
+        allow(libc::SYS_close_range),
         allow(libc::SYS_pipe2),
         allow(libc::SYS_exit),
         allow(libc::SYS_exit_group),
@@ -184,12 +185,12 @@ fn apply_seccomp() -> Result<()> {
     .into_iter()
     .collect();
 
+    // Legacy syscalls that exist only in the x86_64 table. aarch64 uses the
+    // generic table, where glibc implements these via ppoll, epoll_pwait,
+    // and epoll_create1 (all allowed above).
     #[cfg(target_arch = "x86_64")]
-    {
-        rules.insert(libc::SYS_epoll_create, Vec::new());
-        rules.insert(libc::SYS_epoll_pwait2, Vec::new());
-        rules.insert(libc::SYS_futex_waitv, Vec::new());
-        rules.insert(libc::SYS_close_range, Vec::new());
+    for sys in [libc::SYS_poll, libc::SYS_epoll_wait, libc::SYS_epoll_create] {
+        rules.insert(sys, Vec::new());
     }
 
     let ioctl_rules = ioctl_allowlist()?;
