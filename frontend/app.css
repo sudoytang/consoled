@@ -11,3 +11,13 @@ html, body {
   position: absolute;
   inset: 0;
 }
+
+html {
+  color-scheme: dark;
+}
+
+/* Blend xterm's always-on scrollbar into the black background. */
+.xterm .xterm-viewport {
+  scrollbar-color: #444 #000;
+  scrollbar-width: thin;
+}
