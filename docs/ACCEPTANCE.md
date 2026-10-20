@@ -14,6 +14,54 @@ sudo ./target/release/consoled \
 
 Open `https://127.0.0.1:8443/` and accept the certificate warning.
 
+## Running in Docker (any host, including macOS)
+
+If you are not on a Debian/Ubuntu machine, run the checklist inside the
+integration image. On Apple Silicon this builds a native aarch64 image.
+
+```bash
+docker build -f integration/Dockerfile -t consoled-test .
+docker run --rm -it --privileged -p 127.0.0.1:8443:8443 \
+  --entrypoint bash consoled-test
+```
+
+`--privileged` is needed because consoled itself chroots, drops privileges and
+installs seccomp, which Docker's default profile does not allow. `--entrypoint
+bash` skips the automated test script and gives you a root shell.
+
+Inside the container, do the setup that `integration/entrypoint.sh` does and
+start consoled in the foreground:
+
+```bash
+useradd --system --no-create-home --shell /usr/sbin/nologin consoled
+mkdir -p /var/empty && chmod 755 /var/empty
+useradd -m -s /bin/bash testuser && echo 'testuser:testpass' | chpasswd
+# Containers usually cannot set loginuid; make it optional for login(1).
+sed -i 's/^session\s\+required\s\+pam_loginuid.so/session optional pam_loginuid.so/' /etc/pam.d/login
+openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
+  -keyout /tmp/key.pem -out /tmp/cert.pem -subj '/CN=localhost'
+
+consoled \
+  --listen 0.0.0.0:8443 \
+  --cert /tmp/cert.pem --key /tmp/key.pem \
+  --origin https://localhost:8443 \
+  --origin https://127.0.0.1:8443 \
+  --per-source-penalty-seconds 0
+```
+
+Then on the host open `https://localhost:8443/` (note `https://`), accept the
+certificate warning and log in as `testuser` / `testpass`.
+
+- Listen on `0.0.0.0` inside the container: Docker's port forwarding arrives on
+  the container's network interface, not its loopback.
+- The origin check is an exact string match, so list every URL you will type
+  (`localhost` and `127.0.0.1` are different origins). A mismatch shows a black
+  page and `origin_rejected` in consoled's log.
+- `--per-source-penalty-seconds 0` disables the short-session cooldown, which
+  otherwise kicks in after quick logout/refresh cycles from the same IP.
+- To inspect processes during the checks, open a second shell with
+  `docker exec -it <container> bash`.
+
 ## Browsers
 
 Repeat the functional checks in:
